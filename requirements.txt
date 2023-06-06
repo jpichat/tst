@@ -1,0 +1,7 @@
+numpy==1.19.5
+pandas==1.2.5
+scikit_learn==0.22.1
+scipy==1.4.1
+more_itertools==4.3.0
+numba==0.49.0
+statsmodels==0.11.1
