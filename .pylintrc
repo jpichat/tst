@@ -1,0 +1,59 @@
+[MASTER]
+jobs=8
+persistent=no
+profile=no
+extension-pkg-whitelist=numpy,pandas,sklearn,scipy
+
+[FORMAT]
+max-line-length=200
+max-module-lines=1000
+
+[VARIABLES]
+init-import=yes
+
+[BASIC]
+good-names=i,j,_,x,y,z,N,E,S,W,id,X,Y,w,b,A,I
+no-docstring-rgx=_.*
+
+[DESIGN]
+max-args=10
+max-attributes=20
+
+[SIMILARITIES]
+min-similarity-lines=4
+ignore-comments=yes
+ignore-docstrings=yes
+ignore-imports=yes
+
+[MESSAGES CONTROL]
+enable=all
+disable=
+    C,
+    R,
+    I,
+    abstract-method,
+    abstract-class-instantiated,
+    anomalous-backslash-in-string,
+    arguments-differ,
+    attribute-defined-outside-init,
+    broad-except,
+    f-string-without-interpolation,
+    fixme,
+    invalid-overridden-method,
+    invalid-sequence-index,
+    invalid-unary-operand-type,
+    logging-format-interpolation,
+    logging-fstring-interpolation,
+    logging-not-lazy,
+    not-an-iterable,
+    not-callable,
+    protected-access,
+    redefined-builtin,
+    redefined-outer-name,
+    unbalanced-tuple-unpacking,
+    unnecessary-pass,
+    unsubscriptable-object,
+    unused-argument,
+    unused-wildcard-import,
+    wildcard-import,
+    raise-missing-from,

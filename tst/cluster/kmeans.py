@@ -12,7 +12,7 @@ from sklearn.cluster import AgglomerativeClustering
 from sklearn.decomposition import TruncatedSVD
 from sklearn.utils.extmath import softmax
 
-from lib.utils import trim_nans, diag_avg, embed, embed_np, windowed_name
+from tst.utils import trim_nans, diag_avg, embed, embed_np, windowed_name
 
 
 class CovarianceKMeans(BaseEstimator):

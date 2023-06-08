@@ -1,0 +1,35 @@
+[flake8]
+max-line-length = 350
+max-doc-length = 1000
+exclude = .git,__pycache__,docs/
+max-complexity = 12
+# https://flake8.pycqa.org/en/latest/user/error-codes.html
+# https://pycodestyle.pycqa.org/en/latest/intro.html#error-codes
+select = B,C,E,F,W,T4,B9
+ignore =
+    E203, # whitespace before ‘:’
+    E231, # missing whitespace after ‘,’, ‘;’, or ‘:’
+    E266, # too many leading ‘#’ for block comment
+    E306, # expected 1 blank line before a nested definition
+    E501, # line too long
+    E721, # do not compare types, use ‘isinstance()’
+    E741, # do not use variables named ‘l’, ‘O’, or ‘I’
+    F403, # '*'-import used
+    F821, # 'name' undefined
+    F841, # local variable assigned but never used
+    W291, # trailing whitespace
+    W293, # blank line contains whitespace
+    W503, # line break before binary operator
+    W605, # invalid escape sequence
+    F405, # use of star import
+    E265, # block comment short start with '# '
+    E262, # inline comment short start with '# '
+    E402, # module level import not at top of file
+    C901, # function too complex (TODO: enable this error and tweak max-complexity threshold above!)
+    E221, # multiple spaces before operator
+    E226, # missing whitespace around arithmetic operator
+    E241, # multiple spaces after ','
+    E202, # whitespace before ']'
+per-file-ignores =
+    # F401: module imported but unused
+    */__init__.py: F401

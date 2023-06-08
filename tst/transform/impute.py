@@ -25,10 +25,10 @@ from scipy.linalg import solve_triangular, cho_solve, cho_factor
 from scipy.optimize import fmin_l_bfgs_b
 
 from values.types import FieldTypes
-from lib.transform.decompose import SSA
-from lib.transform.standardise import Normalize
-from lib.transform.ignore import IgnoreField
-from lib.utils import max_consecutive_nans, embed, embed_np, diag_avg, windowed_name
+from tst.transform.decompose import SSA
+from tst.transform.standardise import Normalize
+from tst.transform.ignore import IgnoreField
+from tst.utils import max_consecutive_nans, embed, embed_np, diag_avg, windowed_name
 
 
 class SimpleImputer(TransformerMixin, BaseEstimator):
