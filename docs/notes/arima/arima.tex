@@ -16,8 +16,8 @@
 
 \begin{document}
 
-\title{Notes on ARIMA in MLCore}
-\author{Solidware}
+\title{Notes on ARIMA}
+\author{Jonas Pichat}
 \date{10 November 2019}
 \maketitle
 
@@ -179,7 +179,7 @@ Results on passengers series are shown in the following are shown in Figure~\ref
 \section{ARIMA}
 \subsection{Differencing}
 \label{diff}
-Differencing removes the changes in the level of a time series, eliminating trend and seasonality and consequently stabilising the mean of the time series. It is usually applied when the raw series in non-stationary, as a means to "stationarise" it (order 1, then 2), and handled in MLCore by {\fontfamily{pcr}\selectfont DeltaTransform1d}.
+Differencing removes the changes in the level of a time series, eliminating trend and seasonality and consequently stabilising the mean of the time series. It is usually applied when the raw series in non-stationary, as a means to "stationarise" it (order 1, then 2).
 
 The classical definition of ARIMA usually considers $\delta=1$ (with order $d=$1 or 2 and rarely above), but in theory, nothing prevents from using larger values e.g., 5-day 7th order differences. As a matter of fact, our ARIMA supports differentiating series using any $\delta$ and $d$, though legitimately, one should then be careful about the nature of the resulting data to be modeled\footnote{as of now, $\delta$ is hard-coded to 1 and $d$ is a free parameter that should not go over 2 (it is difficult to put a physical meaning behind those larger values).}.
 

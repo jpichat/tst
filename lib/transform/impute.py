@@ -7,7 +7,7 @@ from operator import itemgetter
 from typing import Optional, Union
 import logging
 
-from sklear.base import TransformerMixin, BaseEstimator
+from sklearn.base import TransformerMixin, BaseEstimator
 from sklearn.exceptions import NotFittedError
 from sklearn.gaussian_process.kernels import (
     Matern,
@@ -24,9 +24,10 @@ from scipy.stats.mstats import theilslopes
 from scipy.linalg import solve_triangular, cho_solve, cho_factor
 from scipy.optimize import fmin_l_bfgs_b
 
+from values.types import FieldTypes
 from lib.transform.decompose import SSA
-from lib.transform.normalize import Normalize
-from lib.transform.ignore import IgnoreFieldTransform
+from lib.transform.standardise import Normalize
+from lib.transform.ignore import IgnoreField
 from lib.utils import max_consecutive_nans, embed, embed_np, diag_avg, windowed_name
 
 
@@ -83,16 +84,22 @@ class SimpleImputer(TransformerMixin, BaseEstimator):
         if fill_with is None:
             assert strategy is not None, "missing strategy"
         if strategy is not None:
-            assert fill_with is None, "only one of `strategy` or `fill_with` should be passed"
+            assert (
+                fill_with is None
+            ), "only one of `strategy` or `fill_with` should be passed"
         if strategy in (self.Strategies.MEDIAN, self.Strategies.MEAN):
-            assert field_type == FieldTypes.numeric, "choose `most_frequent` for categorical fields"
+            assert (
+                field_type == FieldTypes.numeric
+            ), "choose `most_frequent` for categorical fields"
 
         self.field = field
         self.field_type = field_type
         self.n_skip = n_skip
         self.strategy = strategy
         self.fill_with = fill_with
-        self.mask = mask if mask is None else self._validate_precomputed_mask(mask, field)
+        self.mask = (
+            mask if mask is None else self._validate_precomputed_mask(mask, field)
+        )
         self.return_mask = return_mask
         self.na_field = self.field + self.NA_SUFF if self.return_mask else []
 
@@ -229,16 +236,26 @@ class RollingWindowImputer(TransformerMixin, BaseEstimator):
         assert isinstance(field, str)
         assert field_type is not None, "missing field type"
         assert FieldTypes.is_valid(field_type), f"unknown field type: {field_type}"
-        if strategy in (self.Strategies.MEDIAN, self.Strategies.MEAN, self.Strategies.TREND):
-            assert field_type == FieldTypes.numeric, "choose `most_frequent` for categories"
+        if strategy in (
+            self.Strategies.MEDIAN,
+            self.Strategies.MEAN,
+            self.Strategies.TREND,
+        ):
+            assert (
+                field_type == FieldTypes.numeric
+            ), "choose `most_frequent` for categories"
 
         self.field = field
         self.field_type = field_type
         self.n_skip = n_skip
         self.strategy = strategy
-        self.window_size = window_size or 1  # default-fills with directly preceding value
+        self.window_size = (
+            window_size or 1
+        )  # default-fills with directly preceding value
         self.backward = backward
-        self.mask = mask if mask is None else self._validate_precomputed_mask(mask, field)
+        self.mask = (
+            mask if mask is None else self._validate_precomputed_mask(mask, field)
+        )
         self.return_mask = return_mask
         self.na_field = self.field + self.NA_SUFF if self.return_mask else []
 
@@ -303,7 +320,9 @@ class RollingWindowImputer(TransformerMixin, BaseEstimator):
                 return pd.concat(
                     [
                         chunk_,
-                        self.mask.rename(columns={c: c + self.NA_SUFF for c in self.mask.columns}),
+                        self.mask.rename(
+                            columns={c: c + self.NA_SUFF for c in self.mask.columns}
+                        ),
                     ],
                     axis="columns",
                 )
@@ -407,7 +426,6 @@ class SSAImputer(TransformerMixin, BaseEstimator):
         grouping_method=None,
         use_k_components: int = None,
         mask: Optional[Union[pd.Series, pd.DataFrame, np.ndarray, list]] = None,
-        verbose=False,
     ):
         """
         Args
@@ -456,10 +474,12 @@ class SSAImputer(TransformerMixin, BaseEstimator):
             use_k_components = n_components
         self.grouping_method = grouping_method
         self.use_k_components = use_k_components
-        self.mask = mask if mask is None else self._validate_precomputed_mask(mask, field)
+        self.mask = (
+            mask if mask is None else self._validate_precomputed_mask(mask, field)
+        )
         self.mask_field = None
-        self.transformers = []
-        self.verbose = verbose
+        self._transforms = []
+        self._result = None
 
     @staticmethod
     def _validate_precomputed_mask(mask, field) -> pd.Series:
@@ -475,14 +495,14 @@ class SSAImputer(TransformerMixin, BaseEstimator):
         else:
             raise TypeError("unsupported type for given mask")
 
-    def fit(self, chunk: pd.DataFrame, max_iter: int = 1):
-        """follows sklearn naming to avoid confusion with mlcore apply, which works by chunk"""
-
-        chunk_ = chunk.copy()
+    def fit(self, df: pd.DataFrame, max_iter: int = 1):
+        df_ = df.copy()
         self.max_iter = max_iter
         return_mask = True
 
-        logging.info(f"SSA imputation using {self.use_k_components}/{self.n_components} components")
+        logging.info(
+            f">>> [SSA imputer] requested to use {self.use_k_components}/{self.n_components} SSA components"
+        )
 
         start = time.time()
 
@@ -491,13 +511,11 @@ class SSAImputer(TransformerMixin, BaseEstimator):
 
             while i < self.max_iter:
                 # normalize
-                NT_i = Normalize(self.field, denormalize=True)
-                NT_i.fit_begin()
-                NT_i.fit_chunk(chunk_)
-                NT_i.fit_end()
+                norm_i = Normalize(self.field, denormalize=True)
+                norm_i.fit(df_)
 
                 # decompose
-                SSA_i = SSA(
+                ssa_i = SSA(
                     self.field,
                     embedding_dimension=self.embedding_dimension,
                     n_components=self.n_components,
@@ -505,9 +523,8 @@ class SSAImputer(TransformerMixin, BaseEstimator):
                     var_threshold=self.var_thresh,
                     grouping_method=self.grouping_method,
                     force_isolate_trend=True,
-                    verbose=False,
                 )
-                SSA_i.fit(chunk_)
+                ssa_i.fit(df_)
 
                 # impute
                 if k > 0 or i > 0:
@@ -516,50 +533,56 @@ class SSAImputer(TransformerMixin, BaseEstimator):
 
                 imputer_i = ImputeIteration(
                     self.field,
-                    SSA_i.component_fields(k=list(range(1, k + 2))),
+                    ssa_i.component_fields(k=list(range(1, k + 2))),
                     mask=self.mask,
                     mask_field=self.mask_field,
                     return_mask=return_mask,
                 )
-                imputer_i.fit(chunk_)
+                imputer_i.fit(df_)
 
                 # ignore ssa component fields
-                ignore_i = IgnoreFieldTransform(SSA_i.component_fields())
+                ignore_i = IgnoreField(ssa_i.component_fields())
 
                 # save
-                self.transformers.extend([NT_i, SSA_i, imputer_i, ignore_i, NT_i.reverse])
+                self._transforms.extend(
+                    [norm_i, ssa_i, imputer_i, ignore_i, norm_i.reverse]
+                )
 
-                # apply
-                chunk_ = NT_i.apply_chunk(chunk_)
-                chunk_ = SSA_i.transform(chunk_)
-                chunk_ = imputer_i.transform(chunk_)
-                chunk_ = ignore_i.apply_chunk(chunk_)
-                chunk_ = NT_i.reverse.apply_chunk(chunk_)
+                # apply transforms to continue fit on imputed series
+                df_ = norm_i.transform(df_)
+                df_ = ssa_i.transform(df_)
+                df_ = imputer_i.transform(df_)
+                df_ = ignore_i.transform(df_)
+                df_ = norm_i.reverse.transform(df_)
+
+                # overwrite frame until last iteration
+                self._result = df_
 
                 i += 1
 
-            components_index = 1 if k == 0 else "+".join([str(c) for c in range(1, k + 2)])
-            logging.info(f"filled using component{'s' if k > 0 else ''} {components_index}")
+            components_index = (
+                1 if k == 0 else "+".join([str(c) for c in range(1, k + 2)])
+            )
+            logging.info(
+                f"filled using component{'s' if k > 0 else ''} {components_index}"
+            )
             del components_index
 
-        logging.info(f"done... (total {i * (k + 1)} iter. in {time.time() - start:.4}s)")
+        logging.info(
+            f"done... (total {i * (k + 1)} iter. in {time.time() - start:.4}s)"
+        )
 
         return self
 
-    def transform(self, chunk) -> pd.DataFrame:
-        """NOTE: although the last chunk_ of ``fit`` is the imputed chunk, we perform imputation
-        again in transform to follow the fit/transform pattern
+    def transform(self, df) -> pd.DataFrame:
         """
-        if self.transformers:
-            chunk_ = chunk.copy()
-            for t in self.transformers:
-                if hasattr(t, "transform"):
-                    chunk_ = t.transform(chunk_)
-                else:
-                    chunk_ = t.apply_chunk(chunk_)
-            return chunk_[chunk.columns]
+        ..note:: the last series of ``fit`` is the imputation result, so we just return it and no need to go through
+            self._transforms
+        """
+        if self._result is not None:
+            return self._result
         else:
-            raise NotFittedError("transform should be fitted first")
+            raise NotFittedError(">>> [SSA imputer] transform should be fitted first")
 
     def serialize(self):
         return dict(
@@ -625,38 +648,47 @@ class ImputeIteration(TransformerMixin, BaseEstimator):
         self.imputing_fields = imputing_fields
         self.no_mask_field = mask_field is None
         self.mask = mask
-        self.mask_field = self.field + self.M_SUFFIX if mask_field is None else mask_field
+        self.mask_field = (
+            self.field + self.M_SUFFIX if mask_field is None else mask_field
+        )
         self.return_mask = return_mask
         inputs = [self.field] + self.imputing_fields
         self.output_fields = inputs + [self.mask_field] if self.return_mask else inputs
         del inputs
 
-    def fit(self, chunk):
+    def fit(self, df: pd.DataFrame):
         if self.mask is None:
             if self.no_mask_field:
-                self.mask = chunk[self.field].isnull()
+                self.mask = df[self.field].isnull()
                 self.mask.columns = self.mask_field
             else:
-                self.mask = chunk[self.mask_field]
+                self.mask = df[self.mask_field]
 
         return self
 
-    def transform(self, chunk: pd.DataFrame) -> pd.DataFrame:
-        chunk_values = chunk[self.field].values
-        new_values = np.add.reduce([chunk[l].values for l in self.imputing_fields])
+    def transform(self, df: pd.DataFrame) -> pd.DataFrame:
+        df_ = df.copy()
+        df_values = df_[self.field].values
+        new_values = np.add.reduce(
+            [df_[field].values for field in self.imputing_fields]
+        )
         bool_mask = self.mask.values.astype(dtype=bool)
-        chunk_values[bool_mask] = new_values[bool_mask]
+        df_values[bool_mask] = new_values[bool_mask]
         del bool_mask
-        chunk.loc[:, self.field] = chunk_values
+        df_.loc[:, self.field] = df_values
 
         if self.return_mask:
-            chunk = pd.concat([chunk, self.mask.to_frame(name=self.mask_field)], axis="columns")
+            df_ = pd.concat(
+                [df_, self.mask.to_frame(name=self.mask_field)], axis="columns"
+            )
 
-        return chunk
+        return df_
 
     def serialize(self):
         return dict(
-            field=self.field, imputing_fields=self.imputing_fields, output_fields=self.output_fields
+            field=self.field,
+            imputing_fields=self.imputing_fields,
+            output_fields=self.output_fields,
         )
 
     @classmethod
@@ -743,7 +775,9 @@ class GPImputer(TransformerMixin, BaseEstimator):
         assert isinstance(field, str)
 
         self.field = field
-        self.mask = mask if mask is None else self._validate_precomputed_mask(mask, field)
+        self.mask = (
+            mask if mask is None else self._validate_precomputed_mask(mask, field)
+        )
         self.seed = 42
         self.noise_level = noise_level or 0
         self.kernel = self._init_kernel(kernel)
@@ -777,11 +811,13 @@ class GPImputer(TransformerMixin, BaseEstimator):
     def _init_kernel(self, kernel: Kernels):
         if kernel == self.Kernels.MATERN:
             return Product(
-                ConstantKernel(), Sum(Matern(), WhiteKernel(noise_level=self.noise_level))
+                ConstantKernel(),
+                Sum(Matern(), WhiteKernel(noise_level=self.noise_level)),
             )
         elif kernel == self.Kernels.EXP_SIN_SQUARED:
             return Product(
-                ConstantKernel(), Sum(ExpSineSquared(), WhiteKernel(noise_level=self.noise_level))
+                ConstantKernel(),
+                Sum(ExpSineSquared(), WhiteKernel(noise_level=self.noise_level)),
             )
         elif kernel == self.Kernels.RATIONAL_QUADRATIC:
             return Product(
@@ -789,32 +825,31 @@ class GPImputer(TransformerMixin, BaseEstimator):
                 Sum(RationalQuadratic(), WhiteKernel(noise_level=self.noise_level)),
             )
         elif kernel == self.Kernels.RBF:
-            return Product(ConstantKernel(), Sum(RBF(), WhiteKernel(noise_level=self.noise_level)))
+            return Product(
+                ConstantKernel(), Sum(RBF(), WhiteKernel(noise_level=self.noise_level))
+            )
         elif kernel == self.Kernels.DOT_PRODUCT:
             return Product(
-                ConstantKernel(), Sum(DotProduct() ** 2, WhiteKernel(noise_level=self.noise_level))
+                ConstantKernel(),
+                Sum(DotProduct() ** 2, WhiteKernel(noise_level=self.noise_level)),
             )
         else:
             raise TypeError("unsupported type of kernel")
 
-    def fit(self, chunk: pd.DataFrame, max_evals: int = 1):
+    def fit(self, df: pd.DataFrame, max_evals: int = 1):
         def obj_func(theta):
             lml, grad = self.log_marginal_likelihood(theta, eval_gradient=True)
             return -1 * lml, -1 * grad
 
         np.random.seed(self.seed)
 
-        chunk_ = chunk.copy()
+        chunk_ = df.copy()
         if self.backward:
             chunk_ = reverse(chunk_, [self.field])
 
         # normalize
         if self.normalize:
-            NT = Normalize(self.field)
-            NT.fit_begin()
-            NT.fit_chunk(chunk_)
-            NT.fit_end()
-            chunk_ = NT.apply_chunk(chunk_)
+            chunk_ = Normalize(self.field).fit_transform(chunk_)
 
         y_ = chunk_[self.field].values
         # get values locations
@@ -874,7 +909,9 @@ class GPImputer(TransformerMixin, BaseEstimator):
 
     @staticmethod
     def _optimise(obj_func, initial_theta, bounds):
-        theta_opt, func_min, _ = fmin_l_bfgs_b(obj_func, initial_theta, bounds=bounds, iprint=0)
+        theta_opt, func_min, _ = fmin_l_bfgs_b(
+            obj_func, initial_theta, bounds=bounds, iprint=0
+        )
         return theta_opt, func_min
 
     def log_marginal_likelihood(self, theta=None, eval_gradient=False):
@@ -934,10 +971,8 @@ class GPImputer(TransformerMixin, BaseEstimator):
 
             if self.normalize:
                 NT = Normalize(self.field, denormalize=True)
-                NT.fit_begin()
-                NT.fit_chunk(chunk_)
-                NT.fit_end()
-                chunk_ = NT.apply_chunk(chunk_)
+                NT.fit(chunk_)
+                chunk_ = NT.transform(chunk_)
 
             m = np.isnan(chunk_[self.field].values[self.n_skip :])
             missing_x = np.where(m)[0].reshape(-1, 1)
@@ -966,7 +1001,9 @@ class GPImputer(TransformerMixin, BaseEstimator):
                     std.flat[missing_x] = np.sqrt(var)
 
                 # fill
-                chunk_[self.field].fillna(value=dict(zip(missing_x.ravel(), mean)), inplace=True)
+                chunk_[self.field].fillna(
+                    value=dict(zip(missing_x.ravel(), mean)), inplace=True
+                )
 
                 if self.return_std:
                     chunk_[self.field + self.STDEV_SUFFIX] = std
@@ -975,12 +1012,18 @@ class GPImputer(TransformerMixin, BaseEstimator):
                     # (eq.2.24) posterior covariance
                     cov = K_bb - np.linalg.multi_dot([K_ab.T, self.K_aa_inv, K_ab])
                     # draw samples from posterior at missing values locations
-                    p = np.random.multivariate_normal(mean, cov, self.n_samples_posterior)
-                    temp = np.tile(chunk_[self.field].values, (self.n_samples_posterior, 1))
+                    p = np.random.multivariate_normal(
+                        mean, cov, self.n_samples_posterior
+                    )
+                    temp = np.tile(
+                        chunk_[self.field].values, (self.n_samples_posterior, 1)
+                    )
                     temp[:, missing_x.ravel()] = p
                     chunk_[self.posterior_samples_fields] = pd.DataFrame(temp.T)
 
-            chunk_ = NT.reverse.apply_chunk(chunk_) if self.normalize else chunk_  # denormalize
+            chunk_ = (
+                NT.reverse.apply_chunk(chunk_) if self.normalize else chunk_
+            )  # denormalize
 
             return (
                 reverse(chunk_[chunk.columns], self.field)
@@ -993,13 +1036,18 @@ class GPImputer(TransformerMixin, BaseEstimator):
 
     @property
     def output_fields(self):
-        return [self.field, [self.field + self.STDEV_SUFFIX]] if self.return_std else [self.field]
+        return (
+            [self.field, [self.field + self.STDEV_SUFFIX]]
+            if self.return_std
+            else [self.field]
+        )
 
     @property
     def posterior_samples_fields(self):
         if self.n_samples_posterior is not None:
             return [
-                self.field + self.POST_SUFFIX + f"{i + 1}" for i in range(self.n_samples_posterior)
+                self.field + self.POST_SUFFIX + f"{i + 1}"
+                for i in range(self.n_samples_posterior)
             ]
         else:
             return []
@@ -1097,7 +1145,9 @@ class SVTImputer(TransformerMixin, BaseEstimator):
         self.embedding_dimension = embedding_dimension
         self.n_skip = n_skip
         self.max_iterations = max_iterations
-        self.mask = mask if mask is None else self._validate_precomputed_mask(mask, field)
+        self.mask = (
+            mask if mask is None else self._validate_precomputed_mask(mask, field)
+        )
         self.verbose = verbose
 
     @staticmethod
@@ -1127,7 +1177,9 @@ class SVTImputer(TransformerMixin, BaseEstimator):
             if not lb <= window <= ub:
                 w = int((lb + ub) / 2)
                 if verbose:
-                    logging.warning(f"window ({window}) lies outside [{lb},{ub}] -> forcing w={w}")
+                    logging.warning(
+                        f"window ({window}) lies outside [{lb},{ub}] -> forcing w={w}"
+                    )
                 return w
             else:
                 return window
@@ -1223,7 +1275,9 @@ class SVTImputer(TransformerMixin, BaseEstimator):
 # Helper functions
 
 
-def reverse(df: pd.DataFrame, field_or_fields: Optional[Union[list, str]] = None) -> pd.DataFrame:
+def reverse(
+    df: pd.DataFrame, field_or_fields: Optional[Union[list, str]] = None
+) -> pd.DataFrame:
     """reverse a field's values"""
     df_ = df.copy()
     if field_or_fields is None:

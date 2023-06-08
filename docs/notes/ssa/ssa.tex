@@ -14,8 +14,8 @@
 
 \begin{document}
 
-\title{Notes on SSA in MLCore}
-\author{Solidware}
+\title{Notes on SSA}
+\author{Jonsa Pichat}
 \date{18 November 2019}
 \maketitle
 
@@ -112,7 +112,7 @@ where (i) $U,V$ are left singular and right singular vectors of $X$, or where (i
 One thereby has the approximation of $X=\sum_{i=1}^r X_i$, as a truncated sum of rank 1 quasi-Hankel matrices. This is the best approximation in terms of Euclidean distance\footnote{the problem of low-rank approximation of a data matrix $D$ is defined as the minimisation of the Frobenius norm $||D-\widetilde{D}||_F$ $\Big($def: $||A||^2_F=\textmd{Trace}(A^TA)=\sum \sigma^2_A\Big)$ over $\widetilde{D}$ subject to $\textmd{rank}(\widetilde{D})<r$, the desired rank. It has an analytic solution in terms of the SVD of $D$.}, to any rectangular matrix. Note that by discarding the projections that correspond to the unwanted sources---such as the noise or artifact sources, usually associated with lower eigenvalues (Fig.~\ref{fig:f0})---and then inverting the transformation, we effectively perform a filtering of the signal (Fig.~\ref{fig:f1}). \\
 
 
-In MLCore, one can either:
+The way it is implemented, one can either:
 \begin{itemize}
   \item choose only a number of components, $n_c$ ({\fontfamily{pcr}\selectfont n\_components}), in which case, the number of leading eigenvectors used for matrix approximation is the smallest $k$ such that $\sum_{i=1}^{k}\lambda_i / \sum_{i}\lambda_i>t$, where $t$ is a variance threshold arbitrarily set to 99\%, and $\lambda_1>\lambda_2,\dots$ are the eigenvalues of the lag-covariance matrix. Note that Donoho\footnote{(Gavish and Donoho, 2014) The Optimal Hard Threshold for Singular Values is $4/\sqrt{3}$ (\href{https://www.arxiv.org/abs/1305.5870}{arXiv:1305.5870})} proposed other thresholds (on $\sqrt{\lambda_i}$)---that depend on matrix dimensions and whether the noise level is known---which could be used in addition/replacement. From there, if $n_c>k$, the decomposition is elementary and one is likely to obtain noisy components (associated with small eigenvalues); otherwise, $k$ elementary components will be grouped into $n_c$ components.
   \item choose both a number of components, $n_c$ and a number of eigenvectors ({\fontfamily{pcr}\selectfont n\_leading\_ev}), $n_e$ with $n_c<n_e$. If $n_e>k$, then $n_e$ first eigenvectors are used for elementary projections, but one must know that those associated with small eigenvalues are likely to be noise; the opposite case might result in a coarse decomposition (and therefore a rough approximation) as the proportion of variance explained is less that 99\% (here). The elementary components are then grouped into $n_c$ components, according to a grouping method.

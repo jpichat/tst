@@ -37,7 +37,9 @@ class Patterns:  # no-qa
                     C[k] += w
             W += w
 
-        self.occurences_ = sorted(list(zip(self.seq_, C / W)), key=itemgetter(1), reverse=True)
+        self.occurences_ = sorted(
+            list(zip(self.seq_, C / W)), key=itemgetter(1), reverse=True
+        )
         del X, C, temp
 
         if self.major_seq_is_unique:

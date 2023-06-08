@@ -17,7 +17,9 @@ from itertools import compress
 from statsmodels.tsa.stattools import acf
 
 
-def weighted_correlation(arr: np.ndarray, window_size: int, local_constraint=None, condensed=False):
+def weighted_correlation(
+    arr: np.ndarray, window_size: int, local_constraint=None, condensed=False
+):
     """weighted-correlations matrix (used in SSA)
 
     Args
@@ -436,11 +438,15 @@ def page_matrix_fwd(df: pd.DataFrame, fields: List[str], window_size: int, n_tar
             ]
         )
         out.append(
-            hankel(df[field], np.zeros(window_size + n_targets))[:: window_size + n_targets][:k, :]
+            hankel(df[field], np.zeros(window_size + n_targets))[
+                :: window_size + n_targets
+            ][:k, :]
         )
 
     if len(df) % (window_size + n_targets) != 0:
-        return pd.DataFrame(np.concatenate(out, axis=1)[:-1], columns=sum(output_fields, []))
+        return pd.DataFrame(
+            np.concatenate(out, axis=1)[:-1], columns=sum(output_fields, [])
+        )
 
     else:
         return pd.DataFrame(np.concatenate(out, axis=1), columns=sum(output_fields, []))
@@ -554,7 +560,9 @@ def is_dummy(data_source, field: str, max_ordinal: int = 3) -> list:
     in [0, max_ordinal-1]
     """
     # arbitrary so we don't check all values (gain of time if series is long, but less accurate)
-    df = data_source.inmem([field]).sample(n=min(500, len(data_source)), random_state=42)
+    df = data_source.inmem([field]).sample(
+        n=min(500, len(data_source)), random_state=42
+    )
 
     if all([x in set(np.arange(max_ordinal)) for x in set(df[field].values)]):
         return True
@@ -714,7 +722,9 @@ def detrend(x: np.array, which="spline", period=None):
     return x - trend, trend
 
 
-def periodogram_peaks(x: np.array, min_period: int = 4, max_period: int = None, thresh=0.9):
+def periodogram_peaks(
+    x: np.array, min_period: int = 4, max_period: int = None, thresh=0.9
+):
     """use a modified periodogram (Welch, 1967) to estimate high scoring periods of `x`
     (i.e. above `thresh` of the highest peak)
 
@@ -993,7 +1003,9 @@ def is_constant(x: np.ndarray):
     return np.all(x == x[0])
 
 
-def gkde(x: np.ndarray, min_val: int = -1, max_val: int = 1, n: int = 2000, norm: bool = True):
+def gkde(
+    x: np.ndarray, min_val: int = -1, max_val: int = 1, n: int = 2000, norm: bool = True
+):
     """estimate distribution of x via Gaussian Kernel Density Estimation (kde)
 
     Args
@@ -1163,12 +1175,14 @@ def embed(
 
     for field in fields:
         windowed_fields = [
-            windowed_name(field, t, suffix=suffix) for t in range(-n_lags + 1, n_targets + gap + 1)
+            windowed_name(field, t, suffix=suffix)
+            for t in range(-n_lags + 1, n_targets + gap + 1)
         ]
         Hs.append(
             pd.DataFrame(
                 hankel(
-                    np.hstack([[pad_value] * (w - 1), df[field]]), r=np.array([pad_value] * (w))
+                    np.hstack([[pad_value] * (w - 1), df[field]]),
+                    r=np.array([pad_value] * (w)),
                 )[skip:M],
                 columns=windowed_fields,
             )

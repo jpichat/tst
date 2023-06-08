@@ -56,7 +56,9 @@ class CovarianceKMeans(BaseEstimator):
             number of runs from which the most stable labels are picked
         """
         assert len(fields) > 1, "needs more than 1 series to perform clustering"
-        assert len(fields) > n_clusters, "needs more series than groups to perform clustering"
+        assert (
+            len(fields) > n_clusters
+        ), "needs more series than groups to perform clustering"
 
         self.fields = fields
         self.n_clusters = n_clusters
@@ -198,7 +200,9 @@ def covariance(df: pd.DataFrame, fields):
     return C
 
 
-def svd_smoother(df: pd.DataFrame, field: str, embedding_dimension=None, n_components=1, seed=42):
+def svd_smoother(
+    df: pd.DataFrame, field: str, embedding_dimension=None, n_components=1, seed=42
+):
     """
     SSA-like trend estimation of a series using the first k components of the
     svd decomposition of its trajectory matrix
@@ -502,7 +506,9 @@ class CovarianceHierarchical(BaseEstimator):
             df, fields, embedding_dimension, n_components=self.n_components, log=True
         )[0]
         if verbose:
-            logging.info(f">>> log-covariances done... in {np.round(time.time() - start, 3)}s")
+            logging.info(
+                f">>> log-covariances done... in {np.round(time.time() - start, 3)}s"
+            )
 
         labels = []
         scores = []
@@ -520,7 +526,9 @@ def assign_cluster(cov_predict, cov_fit, labels, method="complete", log=False):
     D = []
     for k in set(labels):
         idx = np.argwhere(labels == k)[0]
-        d = [logEuclidean_dist(cov_predict, Y, logX=log, logY=log) for Y in cov_fit[idx]]
+        d = [
+            logEuclidean_dist(cov_predict, Y, logX=log, logY=log) for Y in cov_fit[idx]
+        ]
         if method == "single":
             D.append(min(d))
         elif method == "complete":
@@ -561,7 +569,9 @@ def hierarchical_grouping(
 
     TODO: add support for condensed distance matrix
     """
-    assert return_labels != return_groups, "one type of output (groups/labels) must be chosen"
+    assert (
+        return_labels != return_groups
+    ), "one type of output (groups/labels) must be chosen"
 
     if distance_matrix.ndim == 1:
         distance_matrix = squareform(distance_matrix)
@@ -722,7 +732,11 @@ def Silhouette_index(dist_matrix, y):
         # minimum average distance between each sample of the cluster c to other clusters
         b = np.min(
             np.stack(
-                [np.mean(dist_matrix[y == c, :][:, y == c2], axis=1) for c2 in range(K) if c2 != c],
+                [
+                    np.mean(dist_matrix[y == c, :][:, y == c2], axis=1)
+                    for c2 in range(K)
+                    if c2 != c
+                ],
                 axis=1,
             ),
             axis=1,
@@ -926,7 +940,9 @@ def ordinal_patterns_distribution(x, L, weighted=True):
     patterns = np.argsort(X).tolist()
     perm = [
         list(x)
-        for x in set(tuple(x) for x in permutations).intersection(set(tuple(x) for x in patterns))
+        for x in set(tuple(x) for x in permutations).intersection(
+            set(tuple(x) for x in patterns)
+        )
     ]
 
     c = np.zeros(len(perm))

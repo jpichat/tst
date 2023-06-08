@@ -16,8 +16,8 @@
 
 \begin{document}
 
-\title{Notes on Recurrent Neural Networks in MLCore}
-\author{Solidware}
+\title{Notes on Recurrent Neural Networks}
+\author{Jonas Pichat}
 \date{2 December 2019}
 \maketitle
 
@@ -26,7 +26,7 @@
 \label{rnn}
 
 \subsection{Vanilla RNN}
-Although RNN is not used \textit{per se} in MLCore, we start with its definition here, as it introduces more complex architectures that were built on it, like LSTM and GRU, which we used.
+We start with the definition of RNN here, as it introduces more complex architectures that were built on it, like LSTM and GRU, which we used.
 
 The most basic RNN is a single layer neural network. A state vector $s$ is fed from cell to cell, where each cell consists of the application of a non-linearity, $\Phi$ to a given input $x_t$ and previous state $s_{t-1}$ at a given time $t$ ($s_t=0$ at $t$=0):
 \begin{equation}

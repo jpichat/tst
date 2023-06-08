@@ -9,6 +9,9 @@ from sklearn.exceptions import NotFittedError
 from lib.utils import weighted_correlation, dot_avg_ma, dot_avg_at, embed, windowed_name
 from lib.cluster.kmeans import hierarchical_grouping
 
+logger = logging.getLogger()
+logger.setLevel(logging.DEBUG)
+
 
 class GroupingMethods:
     WCORR = "wcorr"
@@ -29,7 +32,8 @@ class SSA(TransformerMixin, BaseEstimator):
     as a method of time series analysis and signal processing https://arxiv.org/pdf/1907.02579.pdf
     """
 
-    SUFFIX = "_SSA"
+    SUFFIX = "_ssa"
+    VAR_THRESH = 99.5
 
     def __init__(
         self,
@@ -40,7 +44,6 @@ class SSA(TransformerMixin, BaseEstimator):
         var_threshold: int = None,
         grouping_method: str = GroupingMethods.WCORR,
         force_isolate_trend: bool = True,
-        verbose=False,
     ):
         """
         Args
@@ -71,7 +74,9 @@ class SSA(TransformerMixin, BaseEstimator):
             .. note:: in theory, the trend should already be little correlated to other components but it may happen
             that it unwillingly gets grouped with other components due to some parameters combination
         """
-        assert isinstance(field, str), "expected a str but received {}".format(type(field))
+        assert isinstance(field, str), "expected a str but received {}".format(
+            type(field)
+        )
         assert embedding_dimension is not None, "missing embedding dimension!"
 
         if n_components is not None:
@@ -92,7 +97,9 @@ class SSA(TransformerMixin, BaseEstimator):
             ), "The number of eigenvectors should be smaller than the number of components"
 
         if var_threshold is not None and not isinstance(var_threshold, str):
-            assert 0 < var_threshold < 100, "variance threshold should be between 0 and 100"
+            assert (
+                0 < var_threshold < 100
+            ), "variance threshold should be between 0 and 100"
 
         self.field = field
         self.embedding_dimension = embedding_dimension
@@ -101,7 +108,6 @@ class SSA(TransformerMixin, BaseEstimator):
         self.var_threshold = var_threshold
         self.grouping_method = grouping_method
         self.force_isolate_trend = force_isolate_trend
-        self.verbose = verbose
         # attributes set during fit
         self.out_dim = None
         self.lags = None
@@ -110,73 +116,164 @@ class SSA(TransformerMixin, BaseEstimator):
         self.proj_mat = None
         self.groups = None
 
+    def fit(self, chunk: pd.DataFrame):
+        start = time.time()
+
+        # window
+        chunk2d = embed(chunk, [self.field], self.embedding_dimension, keep_dims=False)
+        self.lags = [
+            windowed_name(self.field, t, "")
+            for t in range(-self.embedding_dimension + 1, 1)
+        ]
+
+        # decompose lag-covariance matrix
+        e_vals, e_vecs = np.linalg.eigh(self._covariance(chunk2d))
+        idx = e_vals.argsort()[::-1]
+        self.e_vals = e_vals[idx]
+        self.e_vecs = e_vecs[:, idx]
+        self._set_subspace_dimension()  # sets self.out_dim
+        del e_vals, e_vecs, idx
+
+        logger.info(
+            f">>> [SSA] decomposition of '{self.field}' into {self.out_dim} components"
+        )
+        logger.info(f">>>    | embedding dimension: {self.embedding_dimension}")
+
+        # projection matrices
+        self.proj_mat = [
+            np.einsum("i,j->ij", self.e_vecs[:, i], self.e_vecs[:, i])
+            for i in range(self.out_dim)
+        ]
+
+        # FIXME: grouping should move to transform
+        if self.grouping and self.out_dim > 1:
+            self.groups = self._group(chunk)
+        else:
+            self.groups = [[i] for i in range(self.out_dim)]
+
+        logger.info(f">>> [SSA] fit done! ({np.round(time.time()-start, 3)}s)")
+
+        return self
+
+    def transform(self, df: pd.DataFrame) -> pd.DataFrame:
+        try:
+            if self.embedding_dimension == 1:
+                return df
+
+            assert len(df) > 2 * (
+                self.embedding_dimension - 1
+            ), f"[SSA] There should be >{2*(self.embedding_dimension-1)} observations for the chosen embedding dimension ({self.embedding_dimension})"
+
+            # missing values
+            mask = df[self.field].isnull()
+            chunk2d = embed(df, [self.field], self.embedding_dimension, keep_dims=False)
+            arr = chunk2d.fillna(0).values  # missing values are filled with 0s
+            res = pd.DataFrame(dtype=np.float)
+
+            for i, P in enumerate(self.proj_mat):
+                out = np.empty(0)
+                out = np.append(out, dot_avg_at(arr[: self.embedding_dimension], P))
+                for j in range(arr.shape[0] - self.embedding_dimension + 1):
+                    out = np.append(
+                        out, dot_avg_ma(arr[j : j + self.embedding_dimension], P)
+                    )
+                out = np.append(
+                    out, dot_avg_at(arr[-self.embedding_dimension :], P, which="lower")
+                )
+
+                res[self.output_fields[i]] = out
+
+            # add left-over columns from input to result
+            res[df.columns] = df[df.columns]
+
+            # put back missing values from mask
+            res[self.field].where(~mask, other=np.nan, inplace=True)
+
+            return res
+
+        except AttributeError:
+            raise NotFittedError("transform should be fitted first")
+
+    @property
+    def output_fields(self):
+        if self.groups is not None:
+            d_ = len(self.groups) + 1
+        else:
+            d_ = self.out_dim + 1
+        return [self.field + self.SUFFIX + f"{i}" for i in range(1, d_)]
+
     def _set_subspace_dimension(self):
         """sets the max number of eigenvectors to use for decomposition (k)
 
         .. note:: auto var_thresh relies on https://arxiv.org/pdf/1305.5870.pdf
         """
 
-        VAR_THRESH = 99.5
         self.grouping = True
-        C = 100.0 * np.cumsum(self.e_vals) / np.sum(self.e_vals)  # cumulated contribution
+        cc = (
+            100.0 * np.cumsum(self.e_vals) / np.sum(self.e_vals)
+        )  # cumulated contribution
 
         if self.n_components == 1 and self.grouping_method is not None:
-            logging.info(">>> Grouping disabled ('n_components=1').")
+            logger.info(">>> [SSA] Grouping disabled ('n_components=1').")
             self.grouping_method = None
 
         if self.n_eigenvectors is None:
 
             if self.var_threshold is None:
                 # force variance threshold to VAR_THRESH=99.5%
-                self.out_dim = np.argwhere(C >= VAR_THRESH)[0][0] + 1
+                self.out_dim = np.argwhere(cc >= self.VAR_THRESH)[0][0] + 1
             elif isinstance(self.var_threshold, (int, float)):
-                self.out_dim = np.argwhere(C >= self.var_threshold)[0][0] + 1
+                self.out_dim = np.argwhere(cc >= self.var_threshold)[0][0] + 1
             elif self.var_threshold == "auto":
                 s_vals = np.sqrt(self.e_vals)
                 self.out_dim = len(s_vals[s_vals > 2.858 * np.median(s_vals)])
             else:
-                raise ValueError("unknown thresholding")
+                raise ValueError("[SSA] unknown thresholding")
 
-            logging.info(
-                f">>> Suggestion: use {self.out_dim}/{self.embedding_dimension} "
-                f"eigenvector(s) ({np.round(C[self.out_dim - 1], 2)}%)"
+            logger.info(
+                f">>> [SSA] suggestion: use {self.out_dim}/{self.embedding_dimension} "
+                f"eigenvector(s) ({np.round(cc[self.out_dim - 1], 2)}%)"
             )
 
             if self.n_components is None:
                 self.n_components = self.out_dim
-                logging.info(f">>> Forcing decomposition into {self.out_dim} component(s)")
+                logger.info(
+                    f">>> [SSA] forcing decomposition into {self.out_dim} component(s)"
+                )
             else:
                 if self.out_dim < self.n_components:
                     self.grouping = False
-                    logging.info(
-                        ">>> No grouping needed: forced using more eigenvectors than necessary: "
+                    logger.info(
+                        ">>> [SSA] no grouping needed: forced using more eigenvectors than necessary: "
                         f"{self.out_dim}->{self.n_components}/{self.embedding_dimension} "
-                        f"({np.round(C[self.out_dim - 1], 2)}->{np.round(C[self.n_components - 1], 2)}%)"
+                        f"({np.round(cc[self.out_dim - 1], 2)}->{np.round(cc[self.n_components - 1], 2)}%)"
                     )
                     self.out_dim = self.n_components
                 elif self.out_dim == self.n_components:
                     self.grouping = False
-                    logging.info(">>> No grouping needed: elementary decomposition")
+                    logger.info(
+                        ">>> [SSA] no grouping needed: elementary decomposition"
+                    )
 
             if self.grouping_method is None:
                 self.grouping = False
                 self.out_dim = self.n_components
-                logging.info(
-                    f">>> No grouping requested: subspace dimension is forced to {self.out_dim}/{self.embedding_dimension}"
+                logger.info(
+                    f">>> [SSA] no grouping requested: subspace dimension is forced to {self.out_dim}/{self.embedding_dimension}"
                 )
 
         else:
             # use the requested number of eigenvectors
             if self.var_threshold is not None:
-                logging.info(">>> Variance threshold was ignored.")
+                logger.info(">>> [SSA] variance threshold was ignored.")
 
             if self.n_components is None:
                 self.grouping = False
                 self.n_components = self.n_eigenvectors
-                logging.info(
-                    ">>> No grouping: elementary decomposition into "
+                logger.info(
+                    ">>> [SSA] no grouping: elementary decomposition into "
                     f"{self.n_eigenvectors}/{self.embedding_dimension} components "
-                    f"({ np.round(C[self.n_eigenvectors - 1], 2)}%)"
+                    f"({ np.round(cc[self.n_eigenvectors - 1], 2)}%)"
                 )
             else:
                 if self.n_components == self.n_eigenvectors:
@@ -185,18 +282,48 @@ class SSA(TransformerMixin, BaseEstimator):
             if self.grouping_method is None:
                 # ignoring number of eigenvectors
                 self.grouping = False
-                logging.info(
-                    f">>> Requested no grouping: using {self.n_eigenvectors}"
+                logger.info(
+                    f">>> [SSA] requested no grouping: using {self.n_eigenvectors}"
                     f"->{ self.n_components}/{self.embedding_dimension} "
-                    f"eigenvectors for elementary decomposition ({np.round(C[self.n_components - 1], 2)}%)"
+                    f"eigenvectors for elementary decomposition ({np.round(cc[self.n_components - 1], 2)}%)"
                 )
                 self.out_dim = self.n_components
             else:
-                logging.info(
-                    f">>> Grouping {self.n_eigenvectors} elementary components "
-                    f"({np.round(C[self.n_eigenvectors - 1], 2)}%) into {self.n_components}"
+                logger.info(
+                    f">>> [SSA] grouping {self.n_eigenvectors} elementary components "
+                    f"({np.round(cc[self.n_eigenvectors - 1], 2)}%) into {self.n_components}"
                 )
                 self.out_dim = self.n_eigenvectors
+
+    def _group(self, chunk):
+        """grouping components"""
+        decomposition = None  # None if grouping method is "eigen"
+        if self.grouping_method == GroupingMethods.WCORR:
+            decomposition = self.transform(chunk)[self.output_fields]
+
+        # grouping
+        dist_mat = self.distance_matrix(series=decomposition)
+        if self.force_isolate_trend:
+            dist_mat = dist_mat[1:, 1:]
+            groups = hierarchical_grouping(dist_mat, self.n_components - 1)
+            groups = [g + 1 for g in groups]  # shifts indices
+            groups.insert(0, np.array([0]))
+        else:
+            groups = hierarchical_grouping(dist_mat, self.n_components)
+
+        self.proj_mat = [np.add.reduce([self.proj_mat[i] for i in g]) for g in groups]
+
+        groups = [g.tolist() for g in groups]
+
+        extra_log = f" (first {len(groups[:5])})" if len(groups) > 5 else ""
+        logger.info(f">>> [SSA] grouping done! {str(groups)}" + extra_log)
+
+        return groups
+
+    def _covariance(self, chunk: pd.DataFrame):
+        """lag-covariance matrix"""
+        chunk_values = chunk[self.lags].dropna().values
+        return np.dot(chunk_values.T, chunk_values)
 
     @staticmethod
     def _optimal_svht_coef_sigma_known(cls, beta):
@@ -216,114 +343,6 @@ class SSA(TransformerMixin, BaseEstimator):
             mp_median.append(cls._median_marcenko_pastur(beta[i]))
         omega = coef / np.sqrt(mp_median)
 
-    def _covariance(self, chunk: pd.DataFrame):
-        """lag-covariance matrix"""
-        chunk_values = chunk[self.lags].dropna().values
-        return np.dot(chunk_values.T, chunk_values)
-
-    def fit(self, chunk: pd.DataFrame):
-        start = time.time()
-
-        # window
-        chunk2d = embed(chunk, self.field, self.embedding_dimension, keep_dims=False)
-        self.lags = [
-            windowed_name(self.field, t, "") for t in range(-self.embedding_dimension + 1, 1)
-        ]
-
-        # decompose lag-covariance matrix
-        e_vals, e_vecs = np.linalg.eigh(self._covariance(chunk2d))
-        idx = e_vals.argsort()[::-1]
-        self.e_vals = e_vals[idx]
-        self.e_vecs = e_vecs[:, idx]
-        self._set_subspace_dimension()  # sets self.out_dim
-        del e_vals, e_vecs, idx
-
-        logging.info(f">>> SSA decomposition of '{self.field}' into {self.out_dim} components")
-        logging.info(f">>>    | embedding dimension: {self.embedding_dimension}")
-
-        # projection matrices
-        self.proj_mat = [
-            np.einsum("i,j->ij", self.e_vecs[:, i], self.e_vecs[:, i]) for i in range(self.out_dim)
-        ]
-
-        if self.grouping and self.out_dim > 1:
-            # TODO: implement progress reporting here?
-            self.groups = self._group(chunk)  # FIXME: grouping should move to transform
-        else:
-            self.groups = [[i] for i in range(self.out_dim)]
-
-        logging.info(f">>> SSA done! ({np.round(time.time()-start, 3)}s)")
-
-        return self
-
-    def _group(self, chunk):
-        """grouping components"""
-        decomposition = None  # None 3 if grouping method is "eigen"
-        if self.grouping_method == GroupingMethods.WCORR:
-            decomposition = self.transform(chunk)[self.output_fields]
-
-        # grouping
-        dist_mat = self.distance_matrix(series=decomposition)
-        if self.force_isolate_trend:
-            dist_mat = dist_mat[1:, 1:]
-            groups = hierarchical_grouping(dist_mat, self.n_components - 1)
-            groups = [g + 1 for g in groups]  # shifts indices
-            groups.insert(0, np.array([0]))
-        else:
-            groups = hierarchical_grouping(dist_mat, self.n_components)
-
-        self.proj_mat = [np.add.reduce([self.proj_mat[i] for i in g]) for g in groups]
-
-        groups = [g.tolist() for g in groups]
-
-        extra_log = f" (first {len(groups[:5])})" if len(groups) > 5 else ""
-        logging.info(f">>> Grouping done! {str(groups)}" + extra_log)
-
-        return groups
-
-    def transform(self, chunk: pd.DataFrame) -> pd.DataFrame:
-        """follows sklearn naming to avoid confusion with mlcore apply, which works by chunk"""
-        try:
-            if self.embedding_dimension == 1:
-                return chunk
-
-            assert len(chunk) > 2 * (
-                self.embedding_dimension - 1
-            ), f"There should be >{2*(self.embedding_dimension-1)} observations for the chosen embedding dimension ({self.embedding_dimension})"
-
-            # missing values
-            mask = chunk[self.field].isnull()
-            chunk2d = embed(chunk, self.field, self.embedding_dimension, keep_dims=False)
-            M = chunk2d.fillna(0).values  # missing values are filled with 0s
-            R = pd.DataFrame(dtype=np.float)
-
-            for i, P in enumerate(self.proj_mat):
-                out = np.empty(0)
-                out = np.append(out, dot_avg_at(M[: self.embedding_dimension], P))
-                for j in range(M.shape[0] - self.embedding_dimension + 1):
-                    out = np.append(out, dot_avg_ma(M[j : j + self.embedding_dimension], P))
-                out = np.append(out, dot_avg_at(M[-self.embedding_dimension :], P, which="lower"))
-                R[self.output_fields[i]] = out
-
-            # add left-over columns from input to result
-            R[chunk.columns] = chunk[chunk.columns]
-
-            # put back mv from mask
-            R[self.field].where(~mask, other=np.nan, inplace=True)
-
-            return R
-
-        except AttributeError:
-            raise NotFittedError("transform should be fitted first")
-
-    @property
-    def output_fields(self):
-        try:
-            d_ = len(self.groups) + 1
-        except AttributeError:
-            d_ = self.out_dim + 1
-        return [self.field + self.SUFFIX + f"{i}" for i in range(1, d_)]
-
     def distance_matrix(self, series: pd.DataFrame = None, ignore_original=True):
         """returns weighted-correlation distance matrix
 
@@ -337,7 +356,9 @@ class SSA(TransformerMixin, BaseEstimator):
         """
         if series is not None:
             # assumes computation of wcorr
-            assert len(series.columns) >= 2, "needs at least 2 series to compute pairwise distances"
+            assert (
+                len(series.columns) >= 2
+            ), "needs at least 2 series to compute pairwise distances"
             if ignore_original:
                 x = series[self.output_fields].values.T
             else:
@@ -380,7 +401,10 @@ class SSA(TransformerMixin, BaseEstimator):
             components output fields
         """
         if k is None:
-            return [self.field + self.SUFFIX + f"{k}" for k in range(1, self.n_components + 1)]
+            return [
+                self.field + self.SUFFIX + f"{k}"
+                for k in range(1, self.n_components + 1)
+            ]
 
         elif isinstance(k, int):
             assert 1 <= k <= self.n_components, "requested component does not exist"
