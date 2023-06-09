@@ -1,10 +1,11 @@
 import warnings
 import math
+from typing import List, Union
 import numpy as np
 import pandas as pd
 import typing as t
 import numba as nb
-from typing import List, Union
+from itertools import compress
 from scipy import signal
 from scipy.optimize import curve_fit
 from scipy.linalg import hankel
@@ -13,13 +14,10 @@ from scipy.stats.mstats import theilslopes
 from scipy.stats import shapiro, levene, gaussian_kde
 from scipy.spatial.distance import squareform
 from statsmodels.tsa.stattools import adfuller, kpss
-from itertools import compress
 from statsmodels.tsa.stattools import acf
 
 
-def weighted_correlation(
-    arr: np.ndarray, window_size: int, local_constraint=None, condensed=False
-):
+def weighted_correlation(arr: np.ndarray, window_size: int, local_constraint=None, condensed=False):
     """weighted-correlations matrix (used in SSA)
 
     Args
@@ -58,6 +56,20 @@ def weighted_correlation(
         return C
     else:
         return squareform(C) + np.eye(n)
+
+
+def covariance(df: pd.DataFrame, fields):
+    """lag-covariance matrix (input is a trajectory matrix)"""
+    out = 0
+    chunks = chunkify(df)
+    for chunk in chunks:
+        arr = chunk[fields].values
+        out += np.dot(arr.T, arr)
+    return out
+
+
+def chunkify(df: pd.DataFrame):
+    raise NotImplementedError
 
 
 def granulate(x: np.ndarray, max_len: int):
@@ -438,15 +450,11 @@ def page_matrix_fwd(df: pd.DataFrame, fields: List[str], window_size: int, n_tar
             ]
         )
         out.append(
-            hankel(df[field], np.zeros(window_size + n_targets))[
-                :: window_size + n_targets
-            ][:k, :]
+            hankel(df[field], np.zeros(window_size + n_targets))[:: window_size + n_targets][:k, :]
         )
 
     if len(df) % (window_size + n_targets) != 0:
-        return pd.DataFrame(
-            np.concatenate(out, axis=1)[:-1], columns=sum(output_fields, [])
-        )
+        return pd.DataFrame(np.concatenate(out, axis=1)[:-1], columns=sum(output_fields, []))
 
     else:
         return pd.DataFrame(np.concatenate(out, axis=1), columns=sum(output_fields, []))
@@ -560,9 +568,7 @@ def is_dummy(data_source, field: str, max_ordinal: int = 3) -> list:
     in [0, max_ordinal-1]
     """
     # arbitrary so we don't check all values (gain of time if series is long, but less accurate)
-    df = data_source.inmem([field]).sample(
-        n=min(500, len(data_source)), random_state=42
-    )
+    df = data_source.inmem([field]).sample(n=min(500, len(data_source)), random_state=42)
 
     if all([x in set(np.arange(max_ordinal)) for x in set(df[field].values)]):
         return True
@@ -722,9 +728,7 @@ def detrend(x: np.array, which="spline", period=None):
     return x - trend, trend
 
 
-def periodogram_peaks(
-    x: np.array, min_period: int = 4, max_period: int = None, thresh=0.9
-):
+def periodogram_peaks(x: np.array, min_period: int = 4, max_period: int = None, thresh=0.9):
     """use a modified periodogram (Welch, 1967) to estimate high scoring periods of `x`
     (i.e. above `thresh` of the highest peak)
 
@@ -1003,9 +1007,7 @@ def is_constant(x: np.ndarray):
     return np.all(x == x[0])
 
 
-def gkde(
-    x: np.ndarray, min_val: int = -1, max_val: int = 1, n: int = 2000, norm: bool = True
-):
+def gkde(x: np.ndarray, min_val: int = -1, max_val: int = 1, n: int = 2000, norm: bool = True):
     """estimate distribution of x via Gaussian Kernel Density Estimation (kde)
 
     Args
@@ -1175,8 +1177,7 @@ def embed(
 
     for field in fields:
         windowed_fields = [
-            windowed_name(field, t, suffix=suffix)
-            for t in range(-n_lags + 1, n_targets + gap + 1)
+            windowed_name(field, t, suffix=suffix) for t in range(-n_lags + 1, n_targets + gap + 1)
         ]
         Hs.append(
             pd.DataFrame(
@@ -1195,7 +1196,7 @@ def embed(
         return pd.concat([D, *Hs], axis="columns")
 
 
-def embed_np(x, L):
+def embed_np(x, window_size):
     """computes the trajectory matrix of x (L-embedding)
 
     Args
@@ -1204,7 +1205,7 @@ def embed_np(x, L):
         input series
         if it is given k time series of length N, we assumed they are in a [k x N] matrix
 
-    L : int
+    window_size : int
         window size
     """
     nd = x.ndim
@@ -1214,11 +1215,11 @@ def embed_np(x, L):
         N = x.shape[1]
     else:
         raise ValueError("does not support dim>2")
-    K = N - L + 1
+    K = N - window_size + 1
     if nd == 1:
-        return hankel(x, np.zeros(L))[:K]
+        return hankel(x, np.zeros(window_size))[:K]
     else:
         l = []
         for x_ in x:
-            l.append(hankel(x_, np.zeros(L))[:K])
+            l.append(hankel(x_, np.zeros(window_size))[:K])
         return np.hstack(l)

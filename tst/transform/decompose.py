@@ -6,7 +6,7 @@ from scipy.spatial.distance import pdist, squareform
 from sklearn.base import TransformerMixin, BaseEstimator
 from sklearn.exceptions import NotFittedError
 
-from tst.utils import weighted_correlation, dot_avg_ma, dot_avg_at, embed, windowed_name
+from tst.utils.utils import weighted_correlation, dot_avg_ma, dot_avg_at, embed, windowed_name
 from tst.cluster.kmeans import hierarchical_grouping
 
 logger = logging.getLogger()
@@ -74,9 +74,7 @@ class SSA(TransformerMixin, BaseEstimator):
             .. note:: in theory, the trend should already be little correlated to other components but it may happen
             that it unwillingly gets grouped with other components due to some parameters combination
         """
-        assert isinstance(field, str), "expected a str but received {}".format(
-            type(field)
-        )
+        assert isinstance(field, str), "expected a str but received {}".format(type(field))
         assert embedding_dimension is not None, "missing embedding dimension!"
 
         if n_components is not None:
@@ -97,9 +95,7 @@ class SSA(TransformerMixin, BaseEstimator):
             ), "The number of eigenvectors should be smaller than the number of components"
 
         if var_threshold is not None and not isinstance(var_threshold, str):
-            assert (
-                0 < var_threshold < 100
-            ), "variance threshold should be between 0 and 100"
+            assert 0 < var_threshold < 100, "variance threshold should be between 0 and 100"
 
         self.field = field
         self.embedding_dimension = embedding_dimension
@@ -122,8 +118,7 @@ class SSA(TransformerMixin, BaseEstimator):
         # window
         chunk2d = embed(chunk, [self.field], self.embedding_dimension, keep_dims=False)
         self.lags = [
-            windowed_name(self.field, t, "")
-            for t in range(-self.embedding_dimension + 1, 1)
+            windowed_name(self.field, t, "") for t in range(-self.embedding_dimension + 1, 1)
         ]
 
         # decompose lag-covariance matrix
@@ -134,15 +129,12 @@ class SSA(TransformerMixin, BaseEstimator):
         self._set_subspace_dimension()  # sets self.out_dim
         del e_vals, e_vecs, idx
 
-        logger.info(
-            f">>> [SSA] decomposition of '{self.field}' into {self.out_dim} components"
-        )
+        logger.info(f">>> [SSA] decomposition of '{self.field}' into {self.out_dim} components")
         logger.info(f">>>    | embedding dimension: {self.embedding_dimension}")
 
         # projection matrices
         self.proj_mat = [
-            np.einsum("i,j->ij", self.e_vecs[:, i], self.e_vecs[:, i])
-            for i in range(self.out_dim)
+            np.einsum("i,j->ij", self.e_vecs[:, i], self.e_vecs[:, i]) for i in range(self.out_dim)
         ]
 
         # FIXME: grouping should move to transform
@@ -174,12 +166,8 @@ class SSA(TransformerMixin, BaseEstimator):
                 out = np.empty(0)
                 out = np.append(out, dot_avg_at(arr[: self.embedding_dimension], P))
                 for j in range(arr.shape[0] - self.embedding_dimension + 1):
-                    out = np.append(
-                        out, dot_avg_ma(arr[j : j + self.embedding_dimension], P)
-                    )
-                out = np.append(
-                    out, dot_avg_at(arr[-self.embedding_dimension :], P, which="lower")
-                )
+                    out = np.append(out, dot_avg_ma(arr[j : j + self.embedding_dimension], P))
+                out = np.append(out, dot_avg_at(arr[-self.embedding_dimension :], P, which="lower"))
 
                 res[self.output_fields[i]] = out
 
@@ -209,9 +197,7 @@ class SSA(TransformerMixin, BaseEstimator):
         """
 
         self.grouping = True
-        cc = (
-            100.0 * np.cumsum(self.e_vals) / np.sum(self.e_vals)
-        )  # cumulated contribution
+        cc = 100.0 * np.cumsum(self.e_vals) / np.sum(self.e_vals)  # cumulated contribution
 
         if self.n_components == 1 and self.grouping_method is not None:
             logger.info(">>> [SSA] Grouping disabled ('n_components=1').")
@@ -237,9 +223,7 @@ class SSA(TransformerMixin, BaseEstimator):
 
             if self.n_components is None:
                 self.n_components = self.out_dim
-                logger.info(
-                    f">>> [SSA] forcing decomposition into {self.out_dim} component(s)"
-                )
+                logger.info(f">>> [SSA] forcing decomposition into {self.out_dim} component(s)")
             else:
                 if self.out_dim < self.n_components:
                     self.grouping = False
@@ -251,9 +235,7 @@ class SSA(TransformerMixin, BaseEstimator):
                     self.out_dim = self.n_components
                 elif self.out_dim == self.n_components:
                     self.grouping = False
-                    logger.info(
-                        ">>> [SSA] no grouping needed: elementary decomposition"
-                    )
+                    logger.info(">>> [SSA] no grouping needed: elementary decomposition")
 
             if self.grouping_method is None:
                 self.grouping = False
@@ -356,9 +338,7 @@ class SSA(TransformerMixin, BaseEstimator):
         """
         if series is not None:
             # assumes computation of wcorr
-            assert (
-                len(series.columns) >= 2
-            ), "needs at least 2 series to compute pairwise distances"
+            assert len(series.columns) >= 2, "needs at least 2 series to compute pairwise distances"
             if ignore_original:
                 x = series[self.output_fields].values.T
             else:
@@ -401,10 +381,7 @@ class SSA(TransformerMixin, BaseEstimator):
             components output fields
         """
         if k is None:
-            return [
-                self.field + self.SUFFIX + f"{k}"
-                for k in range(1, self.n_components + 1)
-            ]
+            return [self.field + self.SUFFIX + f"{k}" for k in range(1, self.n_components + 1)]
 
         elif isinstance(k, int):
             assert 1 <= k <= self.n_components, "requested component does not exist"
