@@ -6,6 +6,7 @@ import pandas as pd
 import typing as t
 import numba as nb
 from itertools import compress
+from sklearn.decomposition import TruncatedSVD
 from scipy import signal
 from scipy.optimize import curve_fit
 from scipy.linalg import hankel
@@ -88,6 +89,32 @@ def granulate(x: np.ndarray, max_len: int):
     b = int(np.fix(N / q))
     u = np.reshape(x[0 : b * q], (b, q))
     return np.mean(u, axis=1)
+
+
+def svd_smoother(df: pd.DataFrame, field: str, embedding_dimension=None, n_components=1, seed=42):
+    """
+    SSA-like trend estimation of a series using the first k components of the
+    svd decomposition of its trajectory matrix
+    """
+    # large window for coarse de-trending
+    # L=min(len(df)//2, 512) if embedding_dimension is None else embedding_dimension
+    embed_dim = embedding_dimension or 14
+    df_ = embed(df, [field], n_lags=embed_dim, keep_dims=False).drop(columns=[field])
+    svd = TruncatedSVD(n_components=n_components, random_state=seed)
+    svd.fit(df_)
+    H = np.add.reduce(
+        [
+            np.linalg.multi_dot(
+                [
+                    df_,
+                    svd.components_[i].reshape(-1, 1),
+                    svd.components_[i].reshape(1, -1),
+                ]
+            )
+            for i in range(n_components)
+        ]
+    )
+    return pd.DataFrame(diag_avg(H), columns=[field])
 
 
 def dict_diff(old: dict = None, new: dict = None) -> dict:

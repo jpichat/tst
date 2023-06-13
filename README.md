@@ -4,7 +4,9 @@
 - transforms
    - [decomposition](tst/transform/decompose.py)
    - [missing values imputation](tst/transform/impute.py)
-   - [clustering](tst/cluster/kmeans.py)
+- clustering
+   - [covariance-kmeans](tst/cluster/covariance_kmeans.py)
+   - [covariance-hierarchical](tst/cluster/covariance_hierarchical.py)
 
 🐍 Some notebooks for:
 - [SSA](docs/notebooks/ssa.ipynb)

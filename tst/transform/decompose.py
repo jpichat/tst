@@ -7,7 +7,7 @@ from sklearn.base import TransformerMixin, BaseEstimator
 from sklearn.exceptions import NotFittedError
 
 from tst.utils.utils import weighted_correlation, dot_avg_ma, dot_avg_at, embed, windowed_name
-from tst.cluster.kmeans import hierarchical_grouping
+from tst.utils.clustering import hierarchical_grouping
 
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)

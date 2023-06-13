@@ -1,11 +1,11 @@
 import time
 import math
+import logging
+from typing import Optional, Union
 import pandas as pd
 import numpy as np
 from collections import Counter
 from operator import itemgetter
-from typing import Optional, Union
-import logging
 from sklearn.base import TransformerMixin, BaseEstimator
 from sklearn.exceptions import NotFittedError
 from sklearn.gaussian_process.kernels import (
