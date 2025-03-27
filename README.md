@@ -37,6 +37,7 @@ The Time Series Toolbox (TST) is a work in progress that currently delivers func
       - [ ] Dual-attention encoder-decoder RNN (https://www.ijcai.org/proceedings/2017/0366.pdf) 
       - [ ] Bayesian regression with change point (https://osf.io/preprints/osf/fzqxv_v1)
 - add/integrate simple transforms
+   - [ ] window transform (and its inverse, diagonal averaging) 
    - [ ] feature engineering
    - [ ] Hilbert-Schmidt Independence Criterion (https://arxiv.org/abs/2305.08529)
 - improve clustering and add support for anomaly detection
