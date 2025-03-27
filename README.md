@@ -1,7 +1,7 @@
 # TST
 
-### Overview
-The Time Series Toolbox, TST (wip) currently delivers functionalities for:
+## Overview
+The Time Series Toolbox (TST) is a work in progress that currently delivers functionalities for:
 - transforms
    - [decomposition](tst/transform/decompose.py)
       - Singular Spectrum Analysis (SSA)
@@ -16,7 +16,16 @@ The Time Series Toolbox, TST (wip) currently delivers functionalities for:
    - [covariance-hierarchical](tst/cluster/covariance_hierarchical.py)
 - various simple utilities in `tst/utils` (in no specific order)
 
-### To Do 
+> [!NOTE]
+> Some docs collecting common knowledge, usage examples or experiments are available:
+> - notebooks
+>    - [SSA](docs/notebooks/ssa.ipynb)
+> - notes
+>    - [ARIMA](docs/notes/arima.pdf)
+>    - [RNN](docs/notes/rnn.pdf)
+>    - [Singular Spectrum Analysis](docs/notes/ssa.pdf)
+
+## To Do 
 - add/integrate models
    - baseline
       - [ ] linear regression and other traditional ML algorithms for tabular data
@@ -33,11 +42,3 @@ The Time Series Toolbox, TST (wip) currently delivers functionalities for:
 - improve clustering and add support for anomaly detection
 - add support for end-to-end training (pipelines)
 - add simple visualisations
-
-### Docs
-- notebooks
-   - [SSA](docs/notebooks/ssa.ipynb)
-- notes
-   - [ARIMA](docs/notes/arima.pdf)
-   - [RNN](docs/notes/rnn.pdf)
-   - [Singular Spectrum Analysis](docs/notes/ssa.pdf)
